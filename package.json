@@ -5,12 +5,10 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "lint": "biome lint .",
-    "lint:fix": "biome lint . --write",
-    "format": "biome format .",
-    "format:fix": "biome format . --write",
-    "check": "biome check .",
-    "check:fix": "biome check . --write"
+    "check:lint": "biome check .",
+    "check:type": "tsc --noEmit",
+    "fix": "biome check . --write",
+    "fix:unsafe": "biome check . --write --unsafe"
   },
   "keywords": [],
   "author": "",
