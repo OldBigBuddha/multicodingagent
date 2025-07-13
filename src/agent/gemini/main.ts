@@ -49,7 +49,7 @@ export class Gemini extends CLIAgent {
     ];
 
     // Add debug flag if in development
-    if (process.env.NODE_ENV !== 'production') {
+    if (process.env['NODE_ENV'] !== 'production') {
       args.push('--debug');
     }
 

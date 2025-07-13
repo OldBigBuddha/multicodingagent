@@ -8,7 +8,7 @@ import { Gemini } from './agent/gemini/main.js';
 const log = new Logger({
   name: 'MultiCodingAgent',
   minLevel: getLogLevel(),
-  type: process.env.NODE_ENV === 'production' ? 'json' : 'pretty',
+  type: process.env['NODE_ENV'] === 'production' ? 'json' : 'pretty',
   prettyLogTemplate: '{{yyyy}}.{{mm}}.{{dd}} {{hh}}:{{MM}}:{{ss}}\t{{logLevelName}}\t{{name}}\t',
 });
 
@@ -16,7 +16,7 @@ const log = new Logger({
  * Determines log level based on environment variables
  */
 function getLogLevel(): number {
-  const logLevel = process.env.LOG_LEVEL || process.env.LOGLEVEL || 'info';
+  const logLevel = process.env['LOG_LEVEL'] || process.env['LOGLEVEL'] || 'info';
 
   switch (logLevel.toLowerCase()) {
     case 'trace':

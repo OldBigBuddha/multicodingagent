@@ -40,7 +40,7 @@ export abstract class CLIAgent {
     this.log = new Logger({
       name: agentName,
       minLevel: logLevel,
-      type: process.env.NODE_ENV === 'production' ? 'json' : 'pretty',
+      type: process.env['NODE_ENV'] === 'production' ? 'json' : 'pretty',
       maskValuesOfKeys: ['apiKey', 'token', 'api_key'],
       prettyLogTemplate:
         '{{yyyy}}.{{mm}}.{{dd}} {{hh}}:{{MM}}:{{ss}}\\t{{logLevelName}}\\t{{name}}\\t',
@@ -112,7 +112,7 @@ export abstract class CLIAgent {
    * Determines log level based on environment variables
    */
   protected getLogLevel(): number {
-    const logLevel = process.env.LOG_LEVEL || process.env.LOGLEVEL || 'info';
+    const logLevel = process.env['LOG_LEVEL'] || process.env['LOGLEVEL'] || 'info';
 
     switch (logLevel.toLowerCase()) {
       case 'trace':
