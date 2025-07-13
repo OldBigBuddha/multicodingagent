@@ -31,7 +31,7 @@ All subagents inherit from the CLIAgent abstract base class, which provides:
 
 Tasks are categorized into five primary types:
 
-- **Research**: Information gathering, requirement analysis, and specification development
+- **Web Research**: Information gathering, requirement analysis, and specification development
 - **Implementation**: Code writing, feature development, and system building
 - **Testing**: Test creation, validation, debugging, and quality assurance
 - **Documentation**: Technical writing, API documentation, and user guides

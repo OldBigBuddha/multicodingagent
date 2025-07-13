@@ -41,7 +41,6 @@ export type ResearchFinding = {
   readonly category: string;
   readonly summary: string;
   readonly details: string;
-  readonly confidence: 'high' | 'medium' | 'low';
   readonly implications: string[];
   readonly sources: ResearchSource[];
 };
@@ -55,7 +54,6 @@ export type ResearchResult = {
   readonly scope: string;
   readonly executionTime: string;
   readonly totalFindings: number;
-  readonly confidenceDistribution: Record<string, number>;
   readonly findings: ResearchFinding[];
   readonly recommendations: string[];
   readonly relatedQueries: string[];
@@ -131,7 +129,7 @@ export class Researcher {
       constraints: topic.constraints?.length || 0,
     });
 
-    const researchPrompt = this.buildResearchPrompt(topic, investigationId);
+    const researchPrompt = this.buildResearchPrompt(topic);
 
     try {
       const startTime = Date.now();
@@ -170,10 +168,9 @@ export class Researcher {
    * Builds the structured prompt for Gemini to conduct research
    *
    * @param topic - The research topic
-   * @param investigationId - Unique investigation identifier
    * @returns Formatted prompt string for Gemini
    */
-  private buildResearchPrompt(topic: ResearchTopic, investigationId: string): string {
+  private buildResearchPrompt(topic: ResearchTopic): string {
     const scope = topic.scope || 'overview';
     const focusSection = topic.focus && topic.focus.length > 0 
       ? `\n\nFocus specifically on these areas:\n${topic.focus.map(f => `- ${f}`).join('\n')}`
@@ -183,83 +180,55 @@ export class Researcher {
       ? `\n\nConstraints and limitations:\n${topic.constraints.map(c => `- ${c}`).join('\n')}`
       : '';
 
-    return `<research_task>
-<investigation_id>${investigationId}</investigation_id>
-<query>${topic.query}</query>
-<scope>${scope}</scope>
+    return `<role>
+You are a technical researcher with expertise in software development, architecture, and technology analysis. Your role is to investigate topics thoroughly, identify key insights, and provide structured findings that help development teams make informed decisions.
+</role>
+
+<task>
+Research: ${topic.query}
+</task>
+
+<requirements>
+Find key information and provide practical findings.
 ${focusSection}${constraintsSection}
-</research_task>
+</requirements>
 
-<instructions>
-You are a technical researcher conducting a ${scope} investigation. Your task is to gather, analyze, and structure information about the given query for consumption by other AI agents.
+<output_format>
+Return ONLY a JSON object with this exact structure:
 
-Research Requirements:
-1. Gather comprehensive information from multiple perspectives
-2. Analyze technical feasibility and implementation approaches
-3. Identify best practices, patterns, and potential pitfalls
-4. Structure findings with clear categorization and confidence levels
-5. Provide actionable recommendations and related investigation paths
+{
+  "investigationSummary": {
+    "query": "${topic.query}",
+    "scope": "${scope}",
+    "totalFindings": 0
+  },
+  "findings": [
+    {
+      "id": "finding-1",
+      "category": "Category Name",
+      "summary": "Brief summary of the finding",
+      "details": "Detailed explanation with technical specifics",
+      "implications": ["Practical implication 1", "Practical implication 2"],
+      "sources": [
+        {
+          "type": "documentation|codebase|specification|external|analysis",
+          "title": "Source Title", 
+          "relevance": "high|medium|low",
+          "url": "URL if available",
+          "section": "Section if applicable"
+        }
+      ]
+    }
+  ],
+  "recommendations": ["Actionable recommendation 1", "Actionable recommendation 2"],
+  "relatedQueries": ["Related investigation topic 1", "Related investigation topic 2"]
+}
+</output_format>
 
-Output Format:
-Your response must be structured with XML-like tags for AI parsing. Use this exact format:
-
-<research_results>
-<investigation_summary>
-<query>${topic.query}</query>
-<scope>${scope}</scope>
-<execution_time>DURATION_IN_MS</execution_time>
-<total_findings>NUMBER</total_findings>
-<confidence_distribution>
-<high>NUMBER</high>
-<medium>NUMBER</medium>
-<low>NUMBER</low>
-</confidence_distribution>
-</investigation_summary>
-
-<findings>
-<finding id="finding-1">
-<category>CATEGORY_NAME</category>
-<summary>Brief summary of the finding</summary>
-<details>Detailed explanation with technical specifics</details>
-<confidence>high|medium|low</confidence>
-<implications>
-<implication>Practical implication 1</implication>
-<implication>Practical implication 2</implication>
-</implications>
-<sources>
-<source type="documentation|codebase|specification|external|analysis" relevance="high|medium|low" title="Source Title" url="URL_IF_AVAILABLE" section="SECTION_IF_AVAILABLE" />
-</sources>
-</finding>
-<!-- Additional findings -->
-</findings>
-
-<recommendations>
-<recommendation priority="high|medium|low">Actionable recommendation 1</recommendation>
-<recommendation priority="high|medium|low">Actionable recommendation 2</recommendation>
-</recommendations>
-
-<related_queries>
-<query>Related investigation topic 1</query>
-<query>Related investigation topic 2</query>
-</related_queries>
-</research_results>
-
-Analysis Depth:
-- ${scope === 'overview' ? 'Provide broad coverage with key insights' : ''}
-- ${scope === 'detailed' ? 'Include technical implementation details and examples' : ''}
-- ${scope === 'comprehensive' ? 'Exhaustive analysis with multiple approaches and edge cases' : ''}
-
-Quality Standards:
-- Each finding must have clear technical relevance
-- Confidence levels must reflect information reliability
-- Sources should be traceable and authoritative
-- Implications should be practically actionable
-- Recommendations should be prioritized by impact and feasibility
-</instructions>
-
-<critical>
-Return ONLY the structured XML response. No additional commentary or explanations outside the tags.
-</critical>`;
+<important>
+Return ONLY the JSON object, no additional text or explanations.
+Do not mention saving files, writing to disk, or file operations.
+</important>`;
   }
 
   /**
@@ -278,17 +247,36 @@ Return ONLY the structured XML response. No additional commentary or explanation
     duration: number
   ): ResearchResult {
     try {
-      // Clean the result and extract XML content
+      // Clean the result and extract JSON content
       let cleanedResult = rawResult.trim();
       
-      // Handle potential code blocks or extra formatting
-      const xmlMatch = cleanedResult.match(/<research_results>[\s\S]*<\/research_results>/);
-      if (xmlMatch) {
-        cleanedResult = xmlMatch[0];
+      // Handle code blocks (```json...```) 
+      const codeBlockMatch = cleanedResult.match(/```json\s*([\s\S]*?)\s*```/);
+      if (codeBlockMatch && codeBlockMatch[1]) {
+        cleanedResult = codeBlockMatch[1].trim();
+      }
+      
+      // Handle escaped JSON strings (from Gemini's result field)
+      if (cleanedResult.startsWith('\\"') && cleanedResult.endsWith('\\"')) {
+        try {
+          cleanedResult = JSON.parse(cleanedResult);
+        } catch (unescapeError) {
+          this.log.debug('Failed to unescape JSON string, proceeding with original', {
+            error: unescapeError instanceof Error ? unescapeError.message : String(unescapeError),
+          });
+        }
+      }
+      
+      let jsonString = cleanedResult;
+
+      // Handle cases where Gemini might include extra text before/after JSON
+      const jsonMatch = cleanedResult.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        jsonString = jsonMatch[0];
       }
 
-      // Parse the XML-like structure (simplified parsing for structured data)
-      const result = this.parseXmlStructure(cleanedResult);
+      // Parse the JSON structure
+      const result = this.parseJsonStructure(jsonString);
       
       // Validate and construct the research result
       const researchResult: ResearchResult = {
@@ -297,7 +285,6 @@ Return ONLY the structured XML response. No additional commentary or explanation
         scope: topic.scope || 'overview',
         executionTime: `${duration}ms`,
         totalFindings: result.findings?.length || 0,
-        confidenceDistribution: result.confidenceDistribution || { high: 0, medium: 0, low: 0 },
         findings: result.findings || [],
         recommendations: result.recommendations || [],
         relatedQueries: result.relatedQueries || [],
@@ -324,130 +311,51 @@ Return ONLY the structured XML response. No additional commentary or explanation
   }
 
   /**
-   * Simplified XML-like structure parser for research results
+   * JSON structure parser for research results
    * 
-   * @param xmlContent - XML-like content to parse
+   * @param jsonContent - JSON content to parse
    * @returns Parsed structure object
    */
-  private parseXmlStructure(xmlContent: string): any {
+  private parseJsonStructure(jsonContent: string): any {
+    const parsed = JSON.parse(jsonContent);
+    
+    // Validate the structure matches expected format
+    if (!parsed.investigationSummary || !Array.isArray(parsed.findings)) {
+      throw new Error('Invalid JSON structure: missing required fields');
+    }
+
+    // Convert to internal format
     const result: any = {
       findings: [],
-      recommendations: [],
-      relatedQueries: [],
-      confidenceDistribution: { high: 0, medium: 0, low: 0 }
+      recommendations: parsed.recommendations || [],
+      relatedQueries: parsed.relatedQueries || []
     };
 
-    // Parse findings
-    const findingsMatch = xmlContent.match(/<findings>([\s\S]*?)<\/findings>/);
-    if (findingsMatch) {
-      const findingsContent = findingsMatch[1];
-      const findingMatches = findingsContent?.match(/<finding[^>]*>[\s\S]*?<\/finding>/g);
-      
-      if (findingMatches) {
-        result.findings = findingMatches.map((findingXml, index) => {
-          const finding: ResearchFinding = {
-            id: `finding-${index + 1}` as TaskID,
-            category: this.extractTextBetweenTags(findingXml, 'category') || 'General',
-            summary: this.extractTextBetweenTags(findingXml, 'summary') || '',
-            details: this.extractTextBetweenTags(findingXml, 'details') || '',
-            confidence: (this.extractTextBetweenTags(findingXml, 'confidence') || 'medium') as 'high' | 'medium' | 'low',
-            implications: this.extractArrayBetweenTags(findingXml, 'implications', 'implication'),
-            sources: this.extractSources(findingXml),
-          };
+    // Process findings
+    if (parsed.findings && Array.isArray(parsed.findings)) {
+      result.findings = parsed.findings.map((finding: any, index: number) => {
+        const processedFinding: ResearchFinding = {
+          id: (finding.id || `finding-${index + 1}`) as TaskID,
+          category: finding.category || 'General',
+          summary: finding.summary || '',
+          details: finding.details || '',
+          implications: Array.isArray(finding.implications) ? finding.implications : [],
+          sources: Array.isArray(finding.sources) ? finding.sources.map((source: any) => ({
+            type: source.type || 'analysis',
+            title: source.title || 'Unknown Source',
+            relevance: source.relevance || 'medium',
+            ...(source.url && { url: source.url }),
+            ...(source.section && { section: source.section })
+          })) : [],
+        };
 
-          // Update confidence distribution
-          result.confidenceDistribution[finding.confidence]++;
-
-          return finding;
-        });
-      }
-    }
-
-    // Parse recommendations
-    const recommendationsMatch = xmlContent.match(/<recommendations>([\s\S]*?)<\/recommendations>/);
-    if (recommendationsMatch) {
-      const recommendationMatches = recommendationsMatch[1]?.match(/<recommendation[^>]*>([^<]*)<\/recommendation>/g);
-      if (recommendationMatches) {
-        result.recommendations = recommendationMatches.map(match => {
-          const content = match.match(/>([^<]*)</) ?.[1] || '';
-          return content.trim();
-        });
-      }
-    }
-
-    // Parse related queries
-    const relatedMatch = xmlContent.match(/<related_queries>([\s\S]*?)<\/related_queries>/);
-    if (relatedMatch) {
-      const queryMatches = relatedMatch[1]?.match(/<query>([^<]*)<\/query>/g);
-      if (queryMatches) {
-        result.relatedQueries = queryMatches.map(match => {
-          const content = match.match(/>([^<]*)</) ?.[1] || '';
-          return content.trim();
-        });
-      }
+        return processedFinding;
+      });
     }
 
     return result;
   }
 
-  /**
-   * Extracts text content between XML tags
-   */
-  private extractTextBetweenTags(xml: string, tagName: string): string | null {
-    const match = xml.match(new RegExp(`<${tagName}>([\\s\\S]*?)<\\/${tagName}>`));
-    return match ? match[1]?.trim() || null : null;
-  }
-
-  /**
-   * Extracts array of text content between XML tags
-   */
-  private extractArrayBetweenTags(xml: string, containerTag: string, itemTag: string): string[] {
-    const containerMatch = xml.match(new RegExp(`<${containerTag}>[\\s\\S]*?<\\/${containerTag}>`));
-    if (!containerMatch) return [];
-
-    const itemMatches = containerMatch[0]?.match(new RegExp(`<${itemTag}>([^<]*)<\\/${itemTag}>`, 'g'));
-    if (!itemMatches) return [];
-
-    return itemMatches.map(match => {
-      const content = match.match(new RegExp(`>([^<]*)<`))?.[1] || '';
-      return content.trim();
-    });
-  }
-
-  /**
-   * Extracts source information from XML
-   */
-  private extractSources(xml: string): ResearchSource[] {
-    const sourcesMatch = xml.match(/<sources>([\s\S]*?)<\/sources>/);
-    if (!sourcesMatch) return [];
-
-    const sourceMatches = sourcesMatch[1]?.match(/<source[^>]*\/>/g);
-    if (!sourceMatches) return [];
-
-    return sourceMatches.map(sourceXml => {
-      const type = this.extractAttribute(sourceXml, 'type') as ResearchSource['type'] || 'analysis';
-      const relevance = this.extractAttribute(sourceXml, 'relevance') as ResearchSource['relevance'] || 'medium';
-      const title = this.extractAttribute(sourceXml, 'title') || 'Unknown Source';
-      const url = this.extractAttribute(sourceXml, 'url');
-      const section = this.extractAttribute(sourceXml, 'section');
-
-      return { 
-        type, 
-        relevance, 
-        title, 
-        ...(url && { url }), 
-        ...(section && { section }) 
-      };
-    });
-  }
-
-  /**
-   * Extracts attribute value from XML tag
-   */
-  private extractAttribute(xml: string, attrName: string): string | undefined {
-    const match = xml.match(new RegExp(`${attrName}=\"([^\"]*)\"`));
-    return match ? match[1] : undefined;
-  }
 
   /**
    * Validates the structure of the parsed research result
@@ -490,9 +398,6 @@ Return ONLY the structured XML response. No additional commentary or explanation
       }
       if (typeof finding.summary !== 'string') {
         throw new Error(`Finding ${index} must have a summary string`);
-      }
-      if (!['high', 'medium', 'low'].includes(finding.confidence)) {
-        throw new Error(`Finding ${index} must have a valid confidence level`);
       }
     }
   }

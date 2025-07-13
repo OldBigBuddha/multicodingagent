@@ -142,7 +142,7 @@ Break down the following user command into detailed, actionable steps:
 <requirements>
 1. Decompose into specific, measurable steps
 2. Categorize each step:
-   - research: Information gathering, specification analysis
+   - web_research: Information gathering, specification analysis
    - implementation: Code writing, feature development
    - testing: Test creation, validation, debugging
    - documentation: Writing docs, comments, README files
@@ -166,7 +166,7 @@ Return ONLY a JSON object with this exact structure:
       "priority": "high|medium|low",
       "estimatedTime": "30 minutes",
       "dependencies": ["step-id-if-any"],
-      "kind": "research|implementation|testing|documentation|analysis"
+      "kind": "web_research|implementation|testing|documentation|analysis"
     }
   ]
 }
@@ -272,7 +272,7 @@ Return ONLY the JSON object, no additional text or explanations.
       if (!['high', 'medium', 'low'].includes(step.priority)) {
         throw new Error(`Step ${index} must have a valid priority`);
       }
-      if (!['research', 'implementation', 'testing', 'documentation', 'analysis'].includes(step.kind)) {
+      if (!['web_research', 'implementation', 'testing', 'documentation', 'analysis'].includes(step.kind)) {
         throw new Error(`Step ${index} must have a valid kind`);
       }
     }

@@ -1,7 +1,7 @@
 /**
  * Task kind definitions for role-based task execution
  */
-export const TASK_KIND = ['research', 'implementation', 'testing', 'documentation', 'analysis'] as const;
+export const TASK_KIND = ['web_research', 'implementation', 'testing', 'documentation', 'analysis'] as const;
 
 /**
  * Task kind type definitions for role-based task execution
