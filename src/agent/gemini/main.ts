@@ -40,23 +40,6 @@ export class Gemini extends CLIAgent {
   }
 
   /**
-   * Returns agent-specific command line arguments
-   */
-  protected getAgentSpecificArgs(): string[] {
-    const args = [
-      '-p', // Placeholder for prompt - will be replaced by escaped prompt
-      '--yolo', // Enable YOLO mode to avoid interactive confirmations
-    ];
-
-    // Add debug flag if in development
-    if (process.env['NODE_ENV'] !== 'production') {
-      args.push('--debug');
-    }
-
-    return args;
-  }
-
-  /**
    * Returns spawn options for the child process
    */
   protected getSpawnOptions(): any {
@@ -68,26 +51,22 @@ export class Gemini extends CLIAgent {
 
   /**
    * Builds command line arguments for Gemini execution
-   * Override to handle -p flag specially
    *
    * @param prompt - The prompt to execute
    * @returns Array of command line arguments
    */
-  protected override buildCommandArgs(prompt: string): string[] {
-    // Get the base args but replace the placeholder
-    const baseArgs = this.getAgentSpecificArgs();
-    const args: string[] = [];
+  protected buildCommandArgs(prompt: string): string[] {
+    const escapedPrompt = this.escapePrompt(prompt);
 
-    for (let i = 0; i < baseArgs.length; i++) {
-      const arg = baseArgs[i];
-      if (arg === '-p') {
-        // Replace with actual escaped prompt
-        args.push('-p');
-        const escapedPrompt = this.escapePrompt(prompt);
-        args.push(escapedPrompt);
-      } else if (arg) {
-        args.push(arg);
-      }
+    const args = [
+      '-p',
+      escapedPrompt,
+      '--yolo', // Enable YOLO mode to avoid interactive confirmations
+    ];
+
+    // Add debug flag if in development
+    if (process.env['NODE_ENV'] !== 'production') {
+      args.push('--debug');
     }
 
     // Add any additional arguments

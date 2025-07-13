@@ -72,16 +72,27 @@ export class ClaudeCode extends CLIAgent {
   }
 
   /**
-   * Returns agent-specific command line arguments
+   * Builds command line arguments for Claude Code execution
+   *
+   * @param prompt - The prompt to execute
+   * @returns Array of command line arguments
    */
-  protected getAgentSpecificArgs(): string[] {
-    return [
+  protected buildCommandArgs(prompt: string): string[] {
+    const escapedPrompt = this.escapePrompt(prompt);
+
+    const args = [
+      escapedPrompt,
       '--dangerously-skip-permissions',
       '--print',
       '--output-format',
       'stream-json',
       '--verbose',
     ];
+
+    // Add any additional arguments
+    args.push(...this.config.additionalArgs);
+
+    return args;
   }
 
   /**

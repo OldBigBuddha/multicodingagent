@@ -175,25 +175,12 @@ export abstract class CLIAgent {
 
   /**
    * Builds command line arguments for execution
-   * Uses built-in prompt escaping
+   * Each agent implements its own command building logic
    *
    * @param prompt - The prompt to execute
    * @returns Array of command line arguments
    */
-  protected buildCommandArgs(prompt: string): string[] {
-    // Use built-in escape method
-    const escapedPrompt = this.escapePrompt(prompt);
-
-    const args = [escapedPrompt];
-
-    // Add agent-specific arguments
-    args.push(...this.getAgentSpecificArgs());
-
-    // Add any additional arguments
-    args.push(...this.config.additionalArgs);
-
-    return args;
-  }
+  protected abstract buildCommandArgs(prompt: string): string[];
 
   /**
    * Sets up event handlers for the spawned process with shared timeout cleanup
@@ -250,11 +237,6 @@ export abstract class CLIAgent {
    * Returns the agent name for logging (e.g., 'Claude Code', 'Gemini')
    */
   protected abstract getAgentName(): string;
-
-  /**
-   * Returns agent-specific command line arguments
-   */
-  protected abstract getAgentSpecificArgs(): string[];
 
   /**
    * Returns spawn options for the child process
