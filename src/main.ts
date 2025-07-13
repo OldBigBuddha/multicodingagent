@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 import { Logger } from 'tslog';
-import { ClaudeCode } from './agent/claude/main.js';
-import { Gemini } from './agent/gemini/main.js';
+import { ClaudeCode } from './model/claude/main.js';
+import { Gemini } from './model/gemini/main.js';
 
 // Initialize logger
 const log = new Logger({

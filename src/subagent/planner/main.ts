@@ -1,5 +1,5 @@
-import { ClaudeCode } from '../../agent/claude/main.js';
-import { CLIAgent } from '../../agent/agent.js';
+import { ClaudeCode } from '../../model/claude/main.js';
+import { CLIAgent } from '../../model/agent.js';
 import { type ILogObj, Logger } from 'tslog';
 import { type TaskKind, type TaskID } from '../types.js';
 
