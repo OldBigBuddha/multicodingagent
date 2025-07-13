@@ -1,4 +1,4 @@
-import { CLIAgent, CLIAgentConfig } from '../agent.js';
+import { CLIAgent, type CLIAgentConfig } from '../agent.js';
 
 /**
  * Claude log event types based on LOG_STRUCT.md
@@ -36,7 +36,7 @@ export type ClaudeConfig = CLIAgentConfig;
 
 /**
  * Claude Code agent class for executing prompts and managing sessions
- * 
+ *
  * @example
  * ```typescript
  * const claude = new ClaudeCode();
@@ -50,11 +50,11 @@ export class ClaudeCode extends CLIAgent {
 
   /**
    * Creates a new Claude Code instance
-   * 
+   *
    * @param config - Configuration options for Claude execution
    */
   constructor(config: ClaudeConfig = {}) {
-    super("ClaudeCode", config);
+    super('ClaudeCode', config);
   }
 
   /**
@@ -78,8 +78,9 @@ export class ClaudeCode extends CLIAgent {
     return [
       '--dangerously-skip-permissions',
       '--print',
-      '--output-format', 'stream-json',
-      '--verbose'
+      '--output-format',
+      'stream-json',
+      '--verbose',
     ];
   }
 
@@ -89,29 +90,29 @@ export class ClaudeCode extends CLIAgent {
   protected getSpawnOptions(): any {
     return {
       stdio: ['inherit', 'pipe', 'pipe'],
-      shell: true
+      shell: true,
     };
   }
 
   /**
    * Handles stdout data from Claude process
-   * 
+   *
    * @param data - Raw stdout data
    */
   protected handleStdoutData(data: Buffer): void {
     const dataString = data.toString();
     this.buffer += dataString;
-    
-    this.log.debug("Received stdout data", { 
+
+    this.log.debug('Received stdout data', {
       dataLength: dataString.length,
       bufferLength: this.buffer.length,
-      content: dataString
+      content: dataString,
     });
-    
+
     // Process complete lines
     const lines = this.buffer.split('\\n');
     this.buffer = lines.pop() || ''; // Keep incomplete line in buffer
-    
+
     for (const line of lines) {
       if (line.trim()) {
         this.parseClaudeOutput(line);
@@ -121,17 +122,17 @@ export class ClaudeCode extends CLIAgent {
 
   /**
    * Handles stderr data from Claude process
-   * 
+   *
    * @param data - Raw stderr data
    */
   protected handleStderrData(data: Buffer): void {
     const errorMessage = data.toString();
-    this.log.error("Process stderr", { message: errorMessage.trim() });
+    this.log.error('Process stderr', { message: errorMessage.trim() });
   }
 
   /**
    * Handles process exit
-   * 
+   *
    * @param code - Exit code
    * @param resolve - Promise resolve function
    * @param reject - Promise reject function
@@ -147,26 +148,26 @@ export class ClaudeCode extends CLIAgent {
     if (this.buffer.trim()) {
       this.parseClaudeOutput(this.buffer);
     }
-    
+
     const exitCode = code || 0;
-    
-    this.log.debug("Process exited", { 
+
+    this.log.debug('Process exited', {
       exitCode,
-      resultLength: this.result.length
+      resultLength: this.result.length,
     });
-    
+
     if (exitCode === 0) {
-      this.log.info("Claude execution completed successfully", {
+      this.log.info('Claude execution completed successfully', {
         prompt: prompt,
-        resultLength: this.result.length
+        resultLength: this.result.length,
       });
       resolve(this.result);
     } else {
       const error = new Error(`Claude process exited with code ${exitCode}`);
-      this.log.error("Claude execution failed", { 
+      this.log.error('Claude execution failed', {
         prompt: prompt,
-        exitCode: exitCode, 
-        error: error.message 
+        exitCode: exitCode,
+        error: error.message,
       });
       reject(error);
     }
@@ -174,84 +175,84 @@ export class ClaudeCode extends CLIAgent {
 
   /**
    * Parses Claude output and handles logging
-   * 
+   *
    * @param data - Raw output data from Claude
    */
   private parseClaudeOutput(data: string): void {
     try {
       const event: LogEvent = JSON.parse(data);
-      
-      this.log.debug("Parsed Claude event", { 
+
+      this.log.debug('Parsed Claude event', {
         type: event.type,
-        subtype: event.subtype
+        subtype: event.subtype,
       });
-      
+
       // Always capture result regardless of debug logging
       if (event.type === 'result' && event.result) {
         this.result = event.result;
-        this.log.debug("Captured result", { resultLength: this.result.length });
+        this.log.debug('Captured result', { resultLength: this.result.length });
       }
-      
+
       // Log Claude activity with structured logging
       this.logClaudeActivity(event);
     } catch (error) {
-      this.log.debug("Failed to parse Claude output", { 
+      this.log.debug('Failed to parse Claude output', {
         data: data.substring(0, 100),
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }
 
   /**
    * Logs Claude's current activity based on the event type using structured logging
-   * 
+   *
    * @param event - Parsed log event from Claude
    */
   private logClaudeActivity(event: LogEvent): void {
     switch (event.type) {
       case 'system':
         if (event.subtype === 'init') {
-          this.log.debug("Claude session initialized", {
+          this.log.debug('Claude session initialized', {
             model: event.model,
             cwd: event.cwd,
             toolsCount: event.tools?.length || 0,
-            sessionId: event.session_id
+            sessionId: event.session_id,
           });
         }
         break;
-        
+
       case 'assistant':
         if (event.message?.content) {
           for (const content of event.message.content) {
             if (content.type === 'text' && content.text) {
-              this.log.debug("Claude is processing", {
+              this.log.debug('Claude is processing', {
                 messageId: event.message.id,
-                textLength: content.text.length
+                textLength: content.text.length,
               });
             } else if (content.type === 'tool_use' && content.name) {
-              this.log.debug("Claude is using tool", {
+              this.log.debug('Claude is using tool', {
                 toolName: content.name,
                 toolId: content.tool_use_id,
-                messageId: event.message.id
+                messageId: event.message.id,
               });
             }
           }
         }
         break;
-        
+
       case 'user':
         if (event.message?.content) {
           for (const content of event.message.content) {
             if (content.type === 'tool_result') {
-              this.log.debug("Tool execution completed", {
+              this.log.debug('Tool execution completed', {
                 toolUseId: content.tool_use_id,
-                hasContent: !!content.content
+                hasContent: !!content.content,
               });
             }
           }
         }
         break;
-        
+
       case 'result':
         if (event.duration_ms) {
           const sessionData = {
@@ -259,13 +260,13 @@ export class ClaudeCode extends CLIAgent {
             cost: event.total_cost_usd,
             isError: event.is_error,
             sessionId: event.session_id,
-            resultLength: event.result?.length || 0
+            resultLength: event.result?.length || 0,
           };
-          
+
           if (event.is_error) {
-            this.log.error("Claude session ended with errors", sessionData);
+            this.log.error('Claude session ended with errors', sessionData);
           } else {
-            this.log.info("Claude session completed successfully", sessionData);
+            this.log.info('Claude session completed successfully', sessionData);
           }
         }
         break;
