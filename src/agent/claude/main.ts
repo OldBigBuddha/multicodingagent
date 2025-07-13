@@ -120,15 +120,100 @@ export class ClaudeCode extends CLIAgent {
       content: dataString,
     });
 
-    // Process complete lines
-    const lines = this.buffer.split('\\n');
-    this.buffer = lines.pop() || ''; // Keep incomplete line in buffer
+    // Try to parse JSON objects from buffer - both single line and multi-line
+    this.processJsonFromBuffer();
+  }
 
-    for (const line of lines) {
-      if (line.trim()) {
-        this.parseClaudeOutput(line);
+  /**
+   * Processes JSON objects from the buffer, handling both single-line and multi-line JSON
+   */
+  private processJsonFromBuffer(): void {
+    const lines = this.buffer.split('\\n');
+    let lineIndex = 0;
+    
+    while (lineIndex < lines.length) {
+      const currentLine = lines[lineIndex];
+      if (currentLine === undefined) {
+        lineIndex++;
+        continue;
+      }
+      const line = currentLine.trim();
+      
+      if (!line) {
+        lineIndex++;
+        continue;
+      }
+      
+      // Try to parse as single-line JSON first
+      if (line.startsWith('{')) {
+        try {
+          // Check if it's a complete single-line JSON
+          JSON.parse(line);
+          this.parseClaudeOutput(line);
+          lineIndex++;
+          continue;
+        } catch {
+          // Not a complete single-line JSON, try multi-line parsing
+          const multiLineResult = this.tryParseMultiLineJson(lines, lineIndex);
+          if (multiLineResult.success) {
+            this.parseClaudeOutput(multiLineResult.json!);
+            lineIndex = multiLineResult.endIndex! + 1;
+            continue;
+          }
+        }
+      }
+      
+      lineIndex++;
+    }
+    
+    // Keep unprocessed lines in buffer
+    this.buffer = lines.slice(lineIndex).join('\\n');
+  }
+
+  /**
+   * Attempts to parse multi-line JSON starting from a given line index
+   */
+  private tryParseMultiLineJson(lines: string[], startIndex: number): {
+    success: boolean;
+    json?: string;
+    endIndex?: number;
+  } {
+    let braceCount = 0;
+    let jsonLines: string[] = [];
+    
+    for (let i = startIndex; i < lines.length; i++) {
+      const line = lines[i];
+      if (line === undefined) continue;
+      jsonLines.push(line);
+      
+      // Count braces to determine JSON boundaries
+      for (const char of line) {
+        if (char === '{') braceCount++;
+        if (char === '}') braceCount--;
+      }
+      
+      // If braces are balanced, try to parse
+      if (braceCount === 0 && jsonLines.length > 0) {
+        const potentialJson = jsonLines.join('\\n').trim();
+        try {
+          JSON.parse(potentialJson);
+          return {
+            success: true,
+            json: potentialJson,
+            endIndex: i
+          };
+        } catch {
+          // Continue searching
+        }
+      }
+      
+      // Prevent infinite parsing for malformed JSON
+      if (jsonLines.length > 100) {
+        break;
       }
     }
+    
+    return { success: false };
   }
 
   /**
@@ -165,6 +250,7 @@ export class ClaudeCode extends CLIAgent {
     this.log.debug('Process exited', {
       exitCode,
       resultLength: this.result.length,
+      resultPreview: this.result.substring(0, 200),
     });
 
     if (exitCode === 0) {
@@ -196,18 +282,33 @@ export class ClaudeCode extends CLIAgent {
       this.log.debug('Parsed Claude event', {
         type: event.type,
         subtype: event.subtype,
+        hasResult: !!event.result,
+        resultPreview: event.result ? event.result.substring(0, 100) : 'no result',
       });
 
-      // Always capture result regardless of debug logging
+      // Capture result from both 'result' events and 'assistant' message content
       if (event.type === 'result' && event.result) {
         this.result = event.result;
-        this.log.debug('Captured result', { resultLength: this.result.length });
+        this.log.debug('Captured result from result event', { resultLength: this.result.length });
+      } else if (event.type === 'assistant' && event.message?.content) {
+        // Extract text content from assistant messages
+        for (const content of event.message.content) {
+          if (content.type === 'text' && content.text) {
+            this.result = content.text;
+            this.log.debug('Captured result from assistant message', { 
+              resultLength: this.result.length,
+              preview: this.result.substring(0, 200)
+            });
+            break; // Take the first text content
+          }
+        }
       }
 
       // Log Claude activity with structured logging
       this.logClaudeActivity(event);
     } catch (error) {
-      this.log.debug('Failed to parse Claude output', {
+      // Only log JSON parse errors at trace level to reduce noise
+      this.log.trace('Failed to parse Claude output', {
         data: data.substring(0, 100),
         error: error instanceof Error ? error.message : String(error),
       });

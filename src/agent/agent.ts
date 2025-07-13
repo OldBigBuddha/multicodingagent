@@ -43,7 +43,7 @@ export abstract class CLIAgent {
       type: process.env['NODE_ENV'] === 'production' ? 'json' : 'pretty',
       maskValuesOfKeys: ['apiKey', 'token', 'api_key'],
       prettyLogTemplate:
-        '{{yyyy}}.{{mm}}.{{dd}} {{hh}}:{{MM}}:{{ss}}\\t{{logLevelName}}\\t{{name}}\\t',
+        '{{yyyy}}.{{mm}}.{{dd}} {{hh}}:{{MM}}:{{ss}}\t{{logLevelName}}\t{{name}}\t',
     });
   }
 
