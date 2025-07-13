@@ -111,7 +111,7 @@ async function main(): Promise<void> {
     console.log('-'.repeat(50));
 
     // Generate implementation prompt dynamically based on Gemini's research
-    const implementationPrompt = `Write oci_config.go file with Go code for JSON config parsing. Based on the following research results:
+    const implementationPrompt = `Write ./dist/oci_config.go file with Go code for JSON config parsing. Based on the following research results:
 
 ${researchResult}
 

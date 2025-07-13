@@ -22,7 +22,7 @@ export class Gemini extends CLIAgent {
    * @param config - Configuration options for Gemini execution
    */
   constructor(config: GeminiConfig = {}) {
-    super('GeminiCode', config);
+    super('Gemini', config);
   }
 
   /**
