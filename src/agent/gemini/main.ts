@@ -1,30 +1,21 @@
-import { spawn, ChildProcess } from 'child_process';
-import { Logger, ILogObj } from 'tslog';
-import { escapePrompt } from '../utils.js';
+import { CLIAgent, CLIAgentConfig } from '../agent.js';
 
 /**
  * Configuration options for Gemini Code execution
  */
-export type GeminiConfig = {
-  readonly additionalArgs?: string[];
-  readonly timeoutMs?: number;
-};
+export type GeminiConfig = CLIAgentConfig;
 
 /**
  * Gemini Code agent class for executing prompts using Google's Gemini models
  * 
  * @example
  * ```typescript
- * const gemini = new GeminiCode();
+ * const gemini = new Gemini();
  * const result = await gemini.execute("Create a hello world function");
  * console.log(result);
  * ```
  */
-export class Gemini {
-  private readonly config: Required<GeminiConfig>;
-  private readonly log: Logger<ILogObj>;
-  private process: ChildProcess | null = null;
-  private timeoutId: NodeJS.Timeout | null = null;
+export class Gemini extends CLIAgent {
 
   /**
    * Creates a new Gemini Code instance
@@ -32,114 +23,29 @@ export class Gemini {
    * @param config - Configuration options for Gemini execution
    */
   constructor(config: GeminiConfig = {}) {
-    this.config = {
-      additionalArgs: config.additionalArgs ?? [],
-      timeoutMs: config.timeoutMs ?? 180000, // Default: 3 minutes
-    };
-
-    // Initialize structured logger with log level based on environment variable
-    const logLevel = this.getLogLevel();
-    this.log = new Logger({
-      name: "GeminiCode",
-      minLevel: logLevel,
-      type: process.env["NODE_ENV"] === 'production' ? "json" : "pretty",
-      maskValuesOfKeys: ["apiKey", "token", "api_key"],
-      prettyLogTemplate: "{{yyyy}}.{{mm}}.{{dd}} {{hh}}:{{MM}}:{{ss}}\t{{logLevelName}}\t{{name}}\t",
-    });
+    super("GeminiCode", config);
   }
 
   /**
-   * Determines log level based on environment variables
+   * Returns the command name to execute
    */
-  private getLogLevel(): number {
-    const logLevel = process.env["LOG_LEVEL"] || process.env["LOGLEVEL"] || "info";
-    
-    switch (logLevel.toLowerCase()) {
-      case 'trace': return 0;
-      case 'debug': return 1;
-      case 'info': return 3;
-      case 'warn': return 4;
-      case 'error': return 5;
-      case 'fatal': return 6;
-      default: return 3; // info
-    }
+  protected getCommandName(): string {
+    return 'gemini';
   }
 
   /**
-   * Executes a prompt using Gemini CLI as a subprocess
-   * 
-   * @param prompt - The prompt text to send to Gemini
-   * @returns Promise that resolves with the result string
+   * Returns the agent name for logging
    */
-  async execute(prompt: string): Promise<string> {
-    if (!prompt || prompt.trim() === '') {
-      const error = new Error('Prompt cannot be empty');
-      this.log.error("Invalid prompt", { error: error.message });
-      throw error;
-    }
-
-    this.log.info("Starting Gemini execution", { 
-      prompt: prompt,
-      promptLength: prompt.length,
-      timeoutMs: this.config.timeoutMs
-    });
-
-    return new Promise((resolve, reject) => {
-      const args = this.buildCommandArgs(prompt);
-      
-      this.log.debug("Spawning Gemini process", { 
-        args: args,
-        originalPrompt: prompt
-      });
-      
-      this.process = spawn('gemini', args, {
-        stdio: ['inherit', 'pipe', 'pipe'],
-        shell: false
-      });
-
-      // Set up timeout
-      this.timeoutId = setTimeout(() => {
-        this.log.error("Gemini execution timed out", {
-          prompt: prompt,
-          timeoutMs: this.config.timeoutMs
-        });
-        this.terminate();
-        reject(new Error(`Gemini execution timed out after ${this.config.timeoutMs}ms`));
-      }, this.config.timeoutMs);
-
-      this.setupEventHandlers(resolve, reject, prompt);
-    });
+  protected getAgentName(): string {
+    return 'Gemini';
   }
 
   /**
-   * Terminates the current Gemini process if running
+   * Returns agent-specific command line arguments
    */
-  terminate(): void {
-    if (this.timeoutId) {
-      clearTimeout(this.timeoutId);
-      this.timeoutId = null;
-    }
-    
-    if (this.process) {
-      this.log.debug("Terminating Gemini process", { pid: this.process.pid });
-      this.process.kill('SIGTERM');
-      this.process = null;
-    }
-  }
-
-  /**
-   * Builds command line arguments for Gemini execution
-   * Uses -p for non-interactive mode with shared prompt escaping
-   * 
-   * @param prompt - The prompt to execute
-   * @returns Array of command line arguments
-   */
-  private buildCommandArgs(prompt: string): string[] {
-    // Use shared escape utility
-    const escapedPrompt = escapePrompt(prompt, this.log);
-    
+  protected getAgentSpecificArgs(): string[] {
     const args = [
-      '-p', escapedPrompt,
+      '-p', // Placeholder for prompt - will be replaced by escaped prompt
       '--yolo' // Enable YOLO mode to avoid interactive confirmations
     ];
     
@@ -148,97 +54,127 @@ export class Gemini {
       args.push('--debug');
     }
     
+    return args;
+  }
+
+  /**
+   * Returns spawn options for the child process
+   */
+  protected getSpawnOptions(): any {
+    return {
+      stdio: ['inherit', 'pipe', 'pipe'],
+      shell: false
+    };
+  }
+
+  /**
+   * Builds command line arguments for Gemini execution
+   * Override to handle -p flag specially
+   * 
+   * @param prompt - The prompt to execute
+   * @returns Array of command line arguments
+   */
+  protected override buildCommandArgs(prompt: string): string[] {
+    // Get the base args but replace the placeholder
+    const baseArgs = this.getAgentSpecificArgs();
+    const args: string[] = [];
+    
+    for (let i = 0; i < baseArgs.length; i++) {
+      const arg = baseArgs[i];
+      if (arg === '-p') {
+        // Replace with actual escaped prompt
+        args.push('-p');
+        const escapedPrompt = this.escapePrompt(prompt);
+        args.push(escapedPrompt);
+      } else if (arg) {
+        args.push(arg);
+      }
+    }
+    
+    // Add any additional arguments
     args.push(...this.config.additionalArgs);
     
     return args;
   }
 
   /**
-   * Sets up event handlers for the spawned Gemini process
+   * Handles stdout data from Gemini process
    * 
+   * @param data - Raw stdout data
+   */
+  protected handleStdoutData(data: Buffer): void {
+    const output = data.toString();
+    this.outputBuffer += output;
+    this.log.debug("Received stdout data", { 
+      dataLength: output.length,
+      content: output
+    });
+  }
+
+  /**
+   * Handles stderr data from Gemini process
+   * 
+   * @param data - Raw stderr data
+   */
+  protected handleStderrData(data: Buffer): void {
+    const errorMessage = data.toString();
+    this.errorBuffer += errorMessage;
+    
+    // Parse debug messages for activity tracking
+    this.parseGeminiActivity(errorMessage);
+    
+    this.log.debug("Received stderr data", { 
+      dataLength: errorMessage.length,
+      content: errorMessage
+    });
+  }
+
+  /**
+   * Handles process exit
+   * 
+   * @param code - Exit code
    * @param resolve - Promise resolve function
    * @param reject - Promise reject function
    * @param prompt - Original prompt for logging
    */
-  private setupEventHandlers(
+  protected handleProcessExit(
+    code: number | null,
     resolve: (result: string) => void,
     reject: (error: Error) => void,
     prompt: string
   ): void {
-    if (!this.process) {
-      reject(new Error('Process not initialized'));
-      return;
-    }
-
-    let outputBuffer = '';
-    let errorBuffer = '';
-
-    this.process.stdout?.on('data', (data) => {
-      const output = data.toString();
-      outputBuffer += output;
-      this.log.debug("Received stdout data", { 
-        dataLength: output.length,
-        content: output
-      });
+    const exitCode = code || 0;
+    
+    this.log.debug("Process exited", { 
+      exitCode,
+      outputLength: this.outputBuffer.length,
+      errorLength: this.errorBuffer.length
     });
-
-    this.process.stderr?.on('data', (data) => {
-      const errorMessage = data.toString();
-      errorBuffer += errorMessage;
+    
+    if (exitCode === 0) {
+      // Clean up the output (remove debug messages and extra whitespace)
+      const cleanedOutput = this.cleanOutput(this.outputBuffer);
       
-      // Parse debug messages for activity tracking
-      this.parseGeminiActivity(errorMessage);
-      
-      this.log.debug("Received stderr data", { 
-        dataLength: errorMessage.length,
-        content: errorMessage
-      });
-    });
-
-    this.process.on('error', (error) => {
-      this.log.error("Process error", { 
+      this.log.info("Gemini execution completed successfully", {
         prompt: prompt,
-        error: error.message 
+        resultLength: cleanedOutput.length
+      });
+      resolve(cleanedOutput);
+    } else {
+      const error = new Error(`Gemini process exited with code ${exitCode}. Error: ${this.errorBuffer.trim()}`);
+      this.log.error("Gemini execution failed", { 
+        prompt: prompt,
+        exitCode, 
+        error: error.message,
+        stderr: this.errorBuffer.trim()
       });
       reject(error);
-    });
-
-    this.process.on('exit', (code) => {
-      // Clear timeout on process exit
-      if (this.timeoutId) {
-        clearTimeout(this.timeoutId);
-        this.timeoutId = null;
-      }
-      
-      const exitCode = code || 0;
-      
-      this.log.debug("Process exited", { 
-        exitCode,
-        outputLength: outputBuffer.length,
-        errorLength: errorBuffer.length
-      });
-      
-      if (exitCode === 0) {
-        // Clean up the output (remove debug messages and extra whitespace)
-        const cleanedOutput = this.cleanOutput(outputBuffer);
-        
-        this.log.info("Gemini execution completed successfully", {
-          prompt: prompt,
-          resultLength: cleanedOutput.length
-        });
-        resolve(cleanedOutput);
-      } else {
-        const error = new Error(`Gemini process exited with code ${exitCode}. Error: ${errorBuffer.trim()}`);
-        this.log.error("Gemini execution failed", { 
-          prompt: prompt,
-          exitCode, 
-          error: error.message,
-          stderr: errorBuffer.trim()
-        });
-        reject(error);
-      }
-    });
+    }
   }
+
+  // Private properties for output buffering
+  private outputBuffer = '';
+  private errorBuffer = '';
 
   /**
    * Parses Gemini CLI activity from debug messages for real-time tracking

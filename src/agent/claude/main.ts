@@ -1,6 +1,4 @@
-import { spawn, ChildProcess } from 'child_process';
-import { Logger, ILogObj } from 'tslog';
-import { escapePrompt } from '../utils.js';
+import { CLIAgent, CLIAgentConfig } from '../agent.js';
 
 /**
  * Claude log event types based on LOG_STRUCT.md
@@ -34,10 +32,7 @@ export type LogEvent = {
 /**
  * Configuration options for Claude Code execution
  */
-export type ClaudeConfig = {
-  readonly additionalArgs?: string[];
-  readonly timeoutMs?: number;
-};
+export type ClaudeConfig = CLIAgentConfig;
 
 /**
  * Claude Code agent class for executing prompts and managing sessions
@@ -49,13 +44,9 @@ export type ClaudeConfig = {
  * console.log(result);
  * ```
  */
-export class ClaudeCode {
-  private readonly config: Required<ClaudeConfig>;
-  private readonly log: Logger<ILogObj>;
-  private process: ChildProcess | null = null;
+export class ClaudeCode extends CLIAgent {
   private buffer = '';
   private result = '';
-  private timeoutId: NodeJS.Timeout | null = null;
 
   /**
    * Creates a new Claude Code instance
@@ -63,196 +54,43 @@ export class ClaudeCode {
    * @param config - Configuration options for Claude execution
    */
   constructor(config: ClaudeConfig = {}) {
-    this.config = {
-      additionalArgs: config.additionalArgs ?? [],
-      timeoutMs: config.timeoutMs ?? 180000, // Default: 3 minutes
-    };
-
-    // Initialize structured logger with log level based on environment variable
-    const logLevel = this.getLogLevel();
-    this.log = new Logger({
-      name: "ClaudeCode",
-      minLevel: logLevel,
-      type: process.env["NODE_ENV"] === 'production' ? "json" : "pretty",
-      maskValuesOfKeys: ["apiKey", "token"],
-      prettyLogTemplate: "{{yyyy}}.{{mm}}.{{dd}} {{hh}}:{{MM}}:{{ss}}\t{{logLevelName}}\t{{name}}\t",
-    });
+    super("ClaudeCode", config);
   }
 
   /**
-   * Determines log level based on environment variables
+   * Returns the command name to execute
    */
-  private getLogLevel(): number {
-    const logLevel = process.env["LOG_LEVEL"] || process.env["LOGLEVEL"] || "info";
-    
-    switch (logLevel.toLowerCase()) {
-      case 'trace': return 0;
-      case 'debug': return 1;
-      case 'info': return 3;
-      case 'warn': return 4;
-      case 'error': return 5;
-      case 'fatal': return 6;
-      default: return 3; // info
-    }
+  protected getCommandName(): string {
+    return 'claude';
   }
 
   /**
-   * Executes a prompt using Claude Code
-   * 
-   * @param prompt - The prompt text to send to Claude
-   * @returns Promise that resolves with the result string
+   * Returns the agent name for logging
    */
-  async execute(prompt: string): Promise<string> {
-    if (!prompt || prompt.trim() === '') {
-      const error = new Error('Prompt cannot be empty');
-      this.log.error("Invalid prompt", { error: error.message });
-      throw error;
-    }
-
-    this.log.info("Starting Claude execution", { 
-      prompt: prompt,
-      promptLength: prompt.length,
-      additionalArgs: this.config.additionalArgs,
-      timeoutMs: this.config.timeoutMs
-    });
-
-    // Reset result for new execution
-    this.result = '';
-
-    return new Promise((resolve, reject) => {
-      const args = this.buildCommandArgs(prompt);
-      
-      this.log.debug("Spawning Claude process", { 
-        args: args,
-        originalPrompt: prompt
-      });
-      
-      this.process = spawn('claude', args, {
-        stdio: ['inherit', 'pipe', 'pipe'],
-        shell: true
-      });
-
-      // Set up timeout
-      this.timeoutId = setTimeout(() => {
-        this.log.error("Claude execution timed out", {
-          prompt: prompt,
-          timeoutMs: this.config.timeoutMs
-        });
-        this.terminate();
-        reject(new Error(`Claude execution timed out after ${this.config.timeoutMs}ms`));
-      }, this.config.timeoutMs);
-
-      this.setupEventHandlers(resolve, reject, prompt);
-    });
+  protected getAgentName(): string {
+    return 'Claude Code';
   }
 
   /**
-   * Terminates the current Claude process if running
+   * Returns agent-specific command line arguments
    */
-  terminate(): void {
-    if (this.timeoutId) {
-      clearTimeout(this.timeoutId);
-      this.timeoutId = null;
-    }
-    
-    if (this.process) {
-      this.log.debug("Terminating Claude process", { pid: this.process.pid });
-      this.process.kill('SIGTERM');
-      this.process = null;
-    }
-  }
-
-  /**
-   * Builds command line arguments for Claude execution
-   * Always includes --verbose, --output-format stream-json, and --print
-   * Uses shared utility for prompt escaping
-   * 
-   * @param prompt - The prompt to execute
-   * @returns Array of command line arguments
-   */
-  private buildCommandArgs(prompt: string): string[] {
-    // Use shared escape utility
-    const escapedPrompt = escapePrompt(prompt, this.log);
-    
-    const args = [
-      escapedPrompt,
+  protected getAgentSpecificArgs(): string[] {
+    return [
       '--dangerously-skip-permissions',
       '--print',
       '--output-format', 'stream-json',
       '--verbose'
     ];
-    
-    args.push(...this.config.additionalArgs);
-    
-    return args;
   }
 
   /**
-   * Sets up event handlers for the spawned Claude process
-   * 
-   * @param resolve - Promise resolve function
-   * @param reject - Promise reject function
-   * @param prompt - Original prompt for logging
+   * Returns spawn options for the child process
    */
-  private setupEventHandlers(
-    resolve: (result: string) => void,
-    reject: (error: Error) => void,
-    prompt: string
-  ): void {
-    if (!this.process) {
-      reject(new Error('Process not initialized'));
-      return;
-    }
-
-    this.process.stdout?.on('data', (data) => {
-      this.handleStdoutData(data);
-    });
-
-    this.process.stderr?.on('data', (data) => {
-      const errorMessage = data.toString();
-      this.log.error("Process stderr", { message: errorMessage.trim() });
-    });
-
-    this.process.on('error', (error) => {
-      this.log.error("Process error", { error: error.message });
-      reject(error);
-    });
-
-    this.process.on('exit', (code) => {
-      // Clear timeout on process exit
-      if (this.timeoutId) {
-        clearTimeout(this.timeoutId);
-        this.timeoutId = null;
-      }
-      
-      // Process any remaining data in buffer
-      if (this.buffer.trim()) {
-        this.parseClaudeOutput(this.buffer);
-      }
-      
-      const exitCode = code || 0;
-      
-      this.log.debug("Process exited", { 
-        exitCode,
-        resultLength: this.result.length
-      });
-      
-      if (exitCode === 0) {
-        this.log.info("Claude execution completed successfully", {
-          prompt: prompt,
-          resultLength: this.result.length
-        });
-        resolve(this.result);
-      } else {
-        const error = new Error(`Claude process exited with code ${exitCode}`);
-        this.log.error("Claude execution failed", { 
-          prompt: prompt,
-          exitCode: exitCode, 
-          error: error.message 
-        });
-        reject(error);
-      }
-    });
+  protected getSpawnOptions(): any {
+    return {
+      stdio: ['inherit', 'pipe', 'pipe'],
+      shell: true
+    };
   }
 
   /**
@@ -260,7 +98,7 @@ export class ClaudeCode {
    * 
    * @param data - Raw stdout data
    */
-  private handleStdoutData(data: Buffer): void {
+  protected handleStdoutData(data: Buffer): void {
     const dataString = data.toString();
     this.buffer += dataString;
     
@@ -271,7 +109,7 @@ export class ClaudeCode {
     });
     
     // Process complete lines
-    const lines = this.buffer.split('\n');
+    const lines = this.buffer.split('\\n');
     this.buffer = lines.pop() || ''; // Keep incomplete line in buffer
     
     for (const line of lines) {
@@ -279,8 +117,59 @@ export class ClaudeCode {
         this.parseClaudeOutput(line);
       }
     }
+  }
+
+  /**
+   * Handles stderr data from Claude process
+   * 
+   * @param data - Raw stderr data
+   */
+  protected handleStderrData(data: Buffer): void {
+    const errorMessage = data.toString();
+    this.log.error("Process stderr", { message: errorMessage.trim() });
+  }
+
+  /**
+   * Handles process exit
+   * 
+   * @param code - Exit code
+   * @param resolve - Promise resolve function
+   * @param reject - Promise reject function
+   * @param prompt - Original prompt for logging
+   */
+  protected handleProcessExit(
+    code: number | null,
+    resolve: (result: string) => void,
+    reject: (error: Error) => void,
+    prompt: string
+  ): void {
+    // Process any remaining data in buffer
+    if (this.buffer.trim()) {
+      this.parseClaudeOutput(this.buffer);
+    }
     
-    // Don't output raw JSON logs to keep output clean
+    const exitCode = code || 0;
+    
+    this.log.debug("Process exited", { 
+      exitCode,
+      resultLength: this.result.length
+    });
+    
+    if (exitCode === 0) {
+      this.log.info("Claude execution completed successfully", {
+        prompt: prompt,
+        resultLength: this.result.length
+      });
+      resolve(this.result);
+    } else {
+      const error = new Error(`Claude process exited with code ${exitCode}`);
+      this.log.error("Claude execution failed", { 
+        prompt: prompt,
+        exitCode: exitCode, 
+        error: error.message 
+      });
+      reject(error);
+    }
   }
 
   /**
@@ -383,4 +272,3 @@ export class ClaudeCode {
     }
   }
 }
-
